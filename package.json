@@ -1,0 +1,22 @@
+{
+  "name": "@partner/ai-gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.8",
+    "@supabase/supabase-js": "^2.116.0",
+    "@types/nodemailer": "^8.0.1",
+    "hono": "^4.6.0",
+    "imapflow": "^1.7.0",
+    "nodemailer": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
