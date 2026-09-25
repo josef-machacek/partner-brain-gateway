@@ -612,5 +612,65 @@ OTÁZKA: ${body.query}`
     return c.json({ id: (data as { id: string }).id }, 201)
   })
 
+  // POST /brain/push-token — ulož Expo push token pro odesílání notifikací
+  app.post('/push-token', async (c) => {
+    let body: { token: string; platform?: string }
+    try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON' }, 400) }
+    if (!body.token?.trim()) return c.json({ error: 'token required' }, 400)
+
+    const sb = getSupabase()
+    if (!sb) return c.json({ error: 'Supabase not configured' }, 503)
+
+    const { error } = await sb.from('push_tokens').upsert({
+      token:      body.token,
+      platform:   body.platform ?? 'ios',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'token' })
+
+    if (error) return c.json({ error: error.message }, 500)
+    return c.json({ ok: true })
+  })
+
+  // POST /brain/push/send-reminders — pošli push notifikace pro dnešní závazky
+  // Voláno cron johem nebo manuálně
+  app.post('/push/send-reminders', async (c) => {
+    const sb = getSupabase()
+    if (!sb) return c.json({ error: 'Supabase not configured' }, 503)
+
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Načti splatné závazky
+    const { data: commitments } = await sb
+      .from('commitments')
+      .select('id, title, to_person, direction, due_date')
+      .in('status', ['pending'])
+      .lte('due_date', today)
+      .limit(20)
+
+    if (!commitments?.length) return c.json({ sent: 0 })
+
+    // Načti push tokeny
+    const { data: tokens } = await sb.from('push_tokens').select('token')
+    if (!tokens?.length) return c.json({ sent: 0, note: 'no push tokens registered' })
+
+    const messages = tokens.flatMap(({ token }: { token: string }) =>
+      commitments.map((cm: { id: string; title: string; to_person: string | null; direction: string; due_date: string | null }) => ({
+        to:    token,
+        title: cm.direction === 'outbound' ? `⏰ Ty: ${cm.title}` : `📩 ${cm.to_person ?? 'Někdo'}: ${cm.title}`,
+        body:  cm.due_date ? `Splatnost: ${cm.due_date}` : 'Bez termínu',
+        data:  { commitmentId: cm.id },
+      }))
+    )
+
+    // Expo Push API
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Accept-Encoding': 'gzip' },
+      body:    JSON.stringify(messages),
+    })
+    const result = await res.json() as unknown
+    return c.json({ sent: messages.length, result })
+  })
+
   return app
 }
